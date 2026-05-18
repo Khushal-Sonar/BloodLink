@@ -1,0 +1,1702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BloodLink – Blood Donor Registry</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
+const COLORS = {
+  crimson: "#C8102E",
+  crimsonDark: "#9B0E23",
+  crimsonLight: "#E8334A",
+  blood: "#8B0000",
+  cream: "#FFF8F0",
+  warm: "#FFF0E8",
+  charcoal: "#1A1A1A",
+  slate: "#2D2D35",
+  muted: "#6B6B7A",
+  border: "#E8E0D8",
+  cardBg: "#FFFFFF",
+  success: "#0B6E4F",
+  warning: "#B45309",
+  info: "#1E40AF",
+};
+
+const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
+const CITIES = ["Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Surat", "Lucknow", "Chandigarh"];
+const STATUS_OPTIONS = ["Available", "Busy", "Recently Donated"];
+
+const STATUS_COLORS = {
+  Available: { bg: "#DCFCE7", text: "#166534", dot: "#16A34A" },
+  Busy: { bg: "#FEF3C7", text: "#92400E", dot: "#D97706" },
+  "Recently Donated": { bg: "#FEE2E2", text: "#991B1B", dot: "#DC2626" },
+};
+
+const BG_COMPATIBILITY = {
+  "O-": ["O-","O+","A-","A+","B-","B+","AB-","AB+"],
+  "O+": ["O+","A+","B+","AB+"],
+  "A-": ["A-","A+","AB-","AB+"],
+  "A+": ["A+","AB+"],
+  "B-": ["B-","B+","AB-","AB+"],
+  "B+": ["B+","AB+"],
+  "AB-": ["AB-","AB+"],
+  "AB+": ["AB+"],
+};
+
+// ─── ADMIN ACCOUNT ─────────────────────────────────────────────────────────────────────────────
+const ADMIN = { id:"admin", name:"Admin", email:"admin@bloodlink.com", password:"Admin@123", isAdmin:true };
+
+// ─── STORAGE ─────────────────────────────────────────────────────────────────────────────
+let DB = {
+  users: [],
+  requests: [],
+  currentUser: null,
+};
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────────
+const generateId = () => Math.random().toString(36).slice(2,10);
+
+const isEligibleToDonate = (lastDonation) => {
+  if (!lastDonation) return true;
+  const diff = (Date.now() - new Date(lastDonation)) / (1000*60*60*24);
+  return diff >= 56;
+};
+
+const daysSince = (date) => {
+  if (!date) return null;
+  return Math.floor((Date.now() - new Date(date)) / (1000*60*60*24));
+};
+
+// ─── ICONS ─────────────────────────────────────────────────────────────────────
+const Icon = ({ name, size=18, color="currentColor" }) => {
+  const icons = {
+    drop: <svg width={size} height={size} viewBox="0 0 24 24" fill={color}><path d="M12 2C12 2 4 10.5 4 15a8 8 0 0016 0C20 10.5 12 2 12 2z"/></svg>,
+    search: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>,
+    user: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+    heart: <svg width={size} height={size} viewBox="0 0 24 24" fill={color}><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>,
+    home: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>,
+    dashboard: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
+    history: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>,
+    logout: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+    pin: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+    phone: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .84h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>,
+    shield: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+    check: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5"><polyline points="20,6 9,17 4,12"/></svg>,
+    close: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    alert: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><polygon points="10.29,3 1.45,21 23.55,21"/><path d="M10.29 3a1.73 1.73 0 013.42 0l9.28 16c.75 1.3-.17 3-1.71 3H2.71C1.17 22 .25 20.3 1 19z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+    edit: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+    sos: <svg width={size} height={size} viewBox="0 0 24 24" fill={color}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>,
+    stats: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+  };
+  return icons[name] || null;
+};
+
+// ─── GLOBAL STYLES ─────────────────────────────────────────────────────────────
+const GlobalStyle = () => (
+  <style>{`
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap');
+    
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: ${COLORS.cream};
+      color: ${COLORS.charcoal};
+      min-height: 100vh;
+    }
+
+    .display-font { font-family: 'Playfair Display', serif; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: ${COLORS.warm}; }
+    ::-webkit-scrollbar-thumb { background: ${COLORS.crimson}; border-radius: 3px; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.92); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes pulse-dot {
+      0%,100% { transform: scale(1); opacity:1; }
+      50% { transform: scale(1.4); opacity:0.7; }
+    }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    @keyframes float {
+      0%,100% { transform: translateY(0px); }
+      50% { transform: translateY(-8px); }
+    }
+    @keyframes floatSlow {
+      0%,100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-12px) rotate(3deg); }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes slideIn {
+      from { opacity:0; transform: translateX(-20px); }
+      to { opacity:1; transform: translateX(0); }
+    }
+    @keyframes slideRight {
+      from { opacity:0; transform: translateX(30px); }
+      to { opacity:1; transform: translateX(0); }
+    }
+    @keyframes heartbeat {
+      0%,100% { transform: scale(1); }
+      14% { transform: scale(1.15); }
+      28% { transform: scale(1); }
+      42% { transform: scale(1.1); }
+      56% { transform: scale(1); }
+    }
+    @keyframes dropFall {
+      0% { opacity:0; transform: translateY(-30px) scale(0.5); }
+      60% { transform: translateY(4px) scale(1.05); }
+      100% { opacity:1; transform: translateY(0) scale(1); }
+    }
+    @keyframes ripple {
+      0% { transform: scale(0.8); opacity:1; }
+      100% { transform: scale(2.2); opacity:0; }
+    }
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    .fade-up { animation: fadeUp 0.5s ease forwards; }
+    .fade-in { animation: fadeIn 0.4s ease forwards; }
+    .scale-in { animation: scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+    .float { animation: float 3s ease-in-out infinite; }
+    .float-slow { animation: floatSlow 5s ease-in-out infinite; }
+    .heartbeat { animation: heartbeat 1.8s ease-in-out infinite; }
+    .page-enter { animation: fadeUp 0.45s cubic-bezier(0.22,1,0.36,1) forwards; }
+
+    .nav-link { transition: all 0.18s cubic-bezier(0.4,0,0.2,1) !important; }
+    .nav-link:hover { transform: translateX(3px); }
+    .nav-link.active { transform: translateX(3px); }
+
+    .card { transition: box-shadow 0.25s ease, transform 0.25s ease !important; }
+
+    .stat-card { animation: fadeUp 0.5s ease both; }
+    
+    .btn-primary {
+      background: ${COLORS.crimson};
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-primary:hover { background: ${COLORS.crimsonDark}; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(200,16,46,0.3); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    .btn-secondary {
+      background: white;
+      color: ${COLORS.crimson};
+      border: 2px solid ${COLORS.crimson};
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-secondary:hover { background: ${COLORS.warm}; transform: translateY(-1px); }
+
+    .btn-ghost {
+      background: transparent;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      border: 1px solid ${COLORS.border};
+      overflow: hidden;
+      transition: all 0.25s ease;
+    }
+    .card:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.08); transform: translateY(-2px); }
+
+    .input-field {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid ${COLORS.border};
+      border-radius: 8px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      background: white;
+      color: ${COLORS.charcoal};
+      transition: border-color 0.2s;
+      outline: none;
+    }
+    .input-field:focus { border-color: ${COLORS.crimson}; box-shadow: 0 0 0 3px rgba(200,16,46,0.08); }
+    .input-field::placeholder { color: #AAA; }
+
+    select.input-field { cursor: pointer; }
+
+    .label { display: block; font-size: 13px; font-weight: 600; color: ${COLORS.muted}; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .section-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 28px;
+      font-weight: 700;
+      color: ${COLORS.charcoal};
+      margin-bottom: 4px;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      animation: fadeUp 0.2s ease;
+    }
+    .modal-box {
+      background: white;
+      border-radius: 20px;
+      padding: 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.2);
+      animation: fadeUp 0.3s ease;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      background: none;
+      font-family: 'DM Sans', sans-serif;
+      width: 100%;
+      text-align: left;
+      color: ${COLORS.slate};
+    }
+    .nav-link:hover { background: ${COLORS.warm}; color: ${COLORS.crimson}; }
+    .nav-link.active { background: ${COLORS.crimson}; color: white; }
+
+    .stat-card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      border: 1px solid ${COLORS.border};
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; right: 0;
+      width: 80px; height: 80px;
+      background: linear-gradient(135deg, transparent 40%, rgba(200,16,46,0.06) 100%);
+      border-radius: 0 0 0 80px;
+    }
+
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(200,16,46,0.2);
+      border-top-color: ${COLORS.crimson};
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    .otp-input {
+      width: 48px; height: 52px;
+      text-align: center;
+      font-size: 22px;
+      font-weight: 700;
+      border: 2px solid ${COLORS.border};
+      border-radius: 10px;
+      font-family: 'DM Sans', sans-serif;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .otp-input:focus { border-color: ${COLORS.crimson}; box-shadow: 0 0 0 3px rgba(200,16,46,0.1); }
+
+    .blood-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      font-weight: 900;
+      font-size: 14px;
+      background: linear-gradient(135deg, ${COLORS.crimson}, ${COLORS.blood});
+      color: white;
+      font-family: 'DM Sans', sans-serif;
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      font-family: 'DM Sans', sans-serif;
+      transition: all 0.2s;
+    }
+    .tab.active { background: ${COLORS.crimson}; color: white; }
+    .tab:not(.active) { background: transparent; color: ${COLORS.muted}; }
+    .tab:not(.active):hover { color: ${COLORS.crimson}; background: ${COLORS.warm}; }
+
+    .progress-bar {
+      height: 6px;
+      background: ${COLORS.border};
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, ${COLORS.crimson}, ${COLORS.crimsonLight});
+      border-radius: 3px;
+      transition: width 0.8s ease;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: white;
+      border: 1px solid ${COLORS.border};
+      border-radius: 12px;
+      padding: 14px 20px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: fadeUp 0.3s ease;
+      max-width: 360px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+  `}</style>
+);
+
+// ─── TOAST ─────────────────────────────────────────────────────────────────────
+const Toast = ({ message, type="success", onClose }) => {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  const colors = { success: COLORS.success, error: COLORS.crimson, info: COLORS.info };
+  return (
+    <div className="toast">
+      <div style={{ width:8, height:8, borderRadius:"50%", background: colors[type], flexShrink:0 }} />
+      <span>{message}</span>
+      <button className="btn-ghost" onClick={onClose} style={{ padding:"2px", marginLeft:"auto" }}>
+        <Icon name="close" size={14} color={COLORS.muted} />
+      </button>
+    </div>
+  );
+};
+
+// ─── OTP MODAL ─────────────────────────────────────────────────────────────────
+const OtpModal = ({ donor, onSuccess, onClose }) => {
+  const [otp, setOtp] = useState(["","","","",""]);
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const DEMO_OTP = "12345";
+
+  const sendOtp = () => {
+    setLoading(true);
+    setTimeout(() => { setSent(true); setLoading(false); }, 1200);
+  };
+
+  const verifyOtp = () => {
+    const entered = otp.join("");
+    if (entered === DEMO_OTP) {
+      setRevealed(true);
+      // Save request
+      DB.requests.push({
+        id: generateId(),
+        patientId: DB.currentUser?.id || "guest",
+        donorId: donor.id,
+        donorName: donor.name,
+        patientName: DB.currentUser?.name || "Guest User",
+        bloodGroup: donor.bloodGroup,
+        city: donor.city,
+        status: "Approved",
+        timestamp: new Date().toISOString(),
+        otpVerified: true,
+      });
+      onSuccess(donor);
+    } else {
+      setOtp(["","","","",""]);
+    }
+  };
+
+  const handleOtpChange = (i, val) => {
+    if (!/^\d?$/.test(val)) return;
+    const next = [...otp]; next[i] = val;
+    setOtp(next);
+    if (val && i < 4) document.getElementById(`otp-${i+1}`)?.focus();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target===e.currentTarget && onClose()}>
+      <div className="modal-box">
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"start", marginBottom:24 }}>
+          <div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+              <Icon name="shield" size={20} color={COLORS.crimson} />
+              <h2 style={{ fontSize:20, fontWeight:700 }}>Secure Contact Reveal</h2>
+            </div>
+            <p style={{ fontSize:14, color:COLORS.muted }}>Verify your identity to access donor contact details</p>
+          </div>
+          <button className="btn-ghost" onClick={onClose} style={{ padding:6 }}>
+            <Icon name="close" size={18} color={COLORS.muted} />
+          </button>
+        </div>
+
+        {revealed ? (
+          <div style={{ animation:"fadeUp 0.4s ease" }}>
+            <div style={{ background: "#F0FDF4", border:"1px solid #86EFAC", borderRadius:12, padding:20, marginBottom:20 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                <div style={{ background:COLORS.success, borderRadius:"50%", padding:4, display:"flex" }}>
+                  <Icon name="check" size={14} color="white" />
+                </div>
+                <span style={{ fontWeight:600, color:COLORS.success }}>Identity Verified</span>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <div className="blood-badge">{donor.bloodGroup}</div>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:18 }}>{donor.name}</div>
+                    <div style={{ fontSize:13, color:COLORS.muted }}>{donor.city}</div>
+                  </div>
+                </div>
+                <div style={{ borderTop:`1px solid #86EFAC`, paddingTop:12, display:"flex", flexDirection:"column", gap:8 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <Icon name="phone" size={16} color={COLORS.success} />
+                    <span style={{ fontWeight:600, fontSize:16 }}>{donor.mobile}</span>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:13, color:COLORS.muted }}>✉ {donor.email}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button className="btn-primary" style={{ width:"100%" }} onClick={onClose}>Done</button>
+          </div>
+        ) : !sent ? (
+          <div>
+            <div style={{ background: COLORS.warm, borderRadius:12, padding:16, marginBottom:24, display:"flex", gap:12, alignItems:"start" }}>
+              <Icon name="alert" size={18} color={COLORS.warning} />
+              <p style={{ fontSize:13, color:COLORS.warning, lineHeight:1.5 }}>
+                An OTP will be sent to your registered mobile. Enter <strong>12345</strong> for this demo.
+              </p>
+            </div>
+            <div style={{ display:"flex", gap:10, alignItems:"center", padding:"12px 16px", background:COLORS.cream, borderRadius:10, marginBottom:20 }}>
+              <div className="blood-badge" style={{ width:36, height:36, fontSize:12 }}>{donor.bloodGroup}</div>
+              <div>
+                <div style={{ fontWeight:600 }}>{donor.name}</div>
+                <div style={{ fontSize:13, color:COLORS.muted }}>{donor.city}</div>
+              </div>
+            </div>
+            <button className="btn-primary" style={{ width:"100%" }} onClick={sendOtp} disabled={loading}>
+              {loading ? <div className="spinner" style={{ borderTopColor:"white", borderColor:"rgba(255,255,255,0.3)" }} /> : <Icon name="phone" size={16} color="white" />}
+              {loading ? "Sending OTP..." : "Send OTP"}
+            </button>
+          </div>
+        ) : (
+          <div>
+            <p style={{ fontSize:14, color:COLORS.muted, marginBottom:24 }}>
+              Enter the 5-digit OTP sent to your mobile. <strong style={{ color:COLORS.charcoal }}>Use 12345 for demo.</strong>
+            </p>
+            <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:28 }}>
+              {otp.map((d,i) => (
+                <input
+                  key={i}
+                  id={`otp-${i}`}
+                  className="otp-input"
+                  type="text"
+                  maxLength={1}
+                  value={d}
+                  onChange={e => handleOtpChange(i, e.target.value)}
+                  onKeyDown={e => { if(e.key==="Backspace" && !d && i>0) document.getElementById(`otp-${i-1}`)?.focus(); }}
+                />
+              ))}
+            </div>
+            <button
+              className="btn-primary"
+              style={{ width:"100%" }}
+              onClick={verifyOtp}
+              disabled={otp.join("").length !== 5}
+            >
+              <Icon name="shield" size={16} color="white" />
+              Verify & Reveal Contact
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── DONOR CARD ────────────────────────────────────────────────────────────────
+const DonorCard = ({ donor, onRequest, showRequest=true }) => {
+  const sc = STATUS_COLORS[donor.status] || STATUS_COLORS.Available;
+  const eligible = isEligibleToDonate(donor.lastDonation);
+  const days = daysSince(donor.lastDonation);
+
+  return (
+    <div className="card" style={{ padding:20 }}>
+      <div style={{ display:"flex", gap:14, alignItems:"start", marginBottom:14 }}>
+        <div className="blood-badge" style={{ width:52, height:52, fontSize:15, borderRadius:12 }}>
+          {donor.bloodGroup}
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontWeight:700, fontSize:17, marginBottom:3, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+            {donor.name}
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:5, color:COLORS.muted, fontSize:13 }}>
+            <Icon name="pin" size={13} color={COLORS.muted} />
+            {donor.city}
+          </div>
+        </div>
+        <div className="badge" style={{ background:sc.bg, color:sc.text, fontSize:11, flexShrink:0 }}>
+          <div style={{ width:6, height:6, borderRadius:"50%", background:sc.dot, animation:"pulse-dot 2s infinite" }} />
+          {donor.status}
+        </div>
+      </div>
+
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+        <span style={{ fontSize:12, background:COLORS.cream, color:COLORS.muted, padding:"3px 10px", borderRadius:99, border:`1px solid ${COLORS.border}` }}>
+          Age {donor.age}
+        </span>
+        {donor.totalDonations > 0 && (
+          <span style={{ fontSize:12, background:"#FFF7ED", color:COLORS.warning, padding:"3px 10px", borderRadius:99, border:"1px solid #FDE68A" }}>
+            {donor.totalDonations} donations
+          </span>
+        )}
+        {days !== null && (
+          <span style={{ fontSize:12, background: eligible ? "#F0FDF4" : "#FEF2F2", color: eligible ? COLORS.success : COLORS.crimson, padding:"3px 10px", borderRadius:99, border:`1px solid ${eligible ? "#86EFAC" : "#FCA5A5"}` }}>
+            {eligible ? `Eligible` : `Last donated ${days}d ago`}
+          </span>
+        )}
+      </div>
+
+      {showRequest && (
+        <button
+          className="btn-primary"
+          style={{ width:"100%", justifyContent:"center", fontSize:14, padding:"10px" }}
+          onClick={() => onRequest(donor)}
+          disabled={donor.status === "Recently Donated" || !eligible}
+        >
+          <Icon name="phone" size={15} color="white" />
+          {donor.status === "Recently Donated" || !eligible ? "Not Available" : "Request Contact"}
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ─── LANDING PAGE ──────────────────────────────────────────────────────────────
+const LandingPage = ({ onNavigate, currentUser }) => {
+  const stats = [
+    { label:"Registered Donors", value: DB.users.length + "+" },
+    { label:"Blood Groups Covered", value:"8" },
+    { label:"Cities Active", value: new Set(DB.users.map(u=>u.city)).size + "" },
+    { label:"Lives Impacted", value:"100+" },
+  ];
+
+  return (
+    <div style={{ minHeight:"100vh" }}>
+      {/* Hero */}
+      <div style={{
+        background: `linear-gradient(135deg, ${COLORS.charcoal} 0%, ${COLORS.slate} 50%, #3D1A1A 100%)`,
+        padding:"80px 24px",
+        position:"relative",
+        overflow:"hidden",
+      }}>
+        {/* Decorative blood drops */}
+        {[...Array(6)].map((_,i) => (
+          <div key={i} style={{
+            position:"absolute",
+            top: `${10+i*15}%`,
+            right: `${5+i*8}%`,
+            opacity: 0.06 + i*0.02,
+            animation: `float ${3+i*0.5}s ease-in-out infinite`,
+            animationDelay: `${i*0.4}s`,
+          }}>
+            <Icon name="drop" size={24+i*8} color="white" />
+          </div>
+        ))}
+
+        <div style={{ maxWidth:640, margin:"0 auto", position:"relative", zIndex:1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:24 }}>
+            <div style={{ background:COLORS.crimson, borderRadius:10, padding:8, display:"flex" }}>
+              <Icon name="drop" size={22} color="white" />
+            </div>
+            <span style={{ color:"rgba(255,255,255,0.7)", fontSize:14, fontWeight:600, letterSpacing:1, textTransform:"uppercase" }}>
+              Emergency Healthcare Portal
+            </span>
+          </div>
+
+          <h1 className="display-font" style={{ color:"white", fontSize:"clamp(36px,6vw,64px)", lineHeight:1.1, marginBottom:20 }}>
+            Every Second<br />
+            <span style={{ color:COLORS.crimsonLight }}>Counts.</span>
+          </h1>
+
+          <p style={{ color:"rgba(255,255,255,0.75)", fontSize:"clamp(15px,2vw,18px)", lineHeight:1.7, marginBottom:36, maxWidth:520 }}>
+            A centralized blood donor registry connecting patients and hospitals with verified donors instantly. No more social media posts. No more lost time.
+          </p>
+
+          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+            {!currentUser ? (
+              <>
+                <button className="btn-primary" style={{ fontSize:16, padding:"14px 28px", background:COLORS.crimson }} onClick={() => onNavigate("register")}>
+                  <Icon name="heart" size={16} color="white" />
+                  Register as Donor
+                </button>
+                <button className="btn-secondary" style={{ fontSize:16, padding:"14px 28px", background:"transparent", color:"white", borderColor:"rgba(255,255,255,0.4)" }} onClick={() => onNavigate("search")}>
+                  <Icon name="search" size={16} color="white" />
+                  Find Donors
+                </button>
+              </>
+            ) : (
+              <button className="btn-primary" style={{ fontSize:16, padding:"14px 28px", background:COLORS.crimson }} onClick={() => onNavigate("search")}>
+                <Icon name="search" size={16} color="white" />
+                Find Donors Now
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Stats bar */}
+      <div style={{ background:COLORS.crimson, padding:"20px 24px" }}>
+        <div style={{ maxWidth:900, margin:"0 auto", display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px,1fr))", gap:16 }}>
+          {stats.map((s,i) => (
+            <div key={i} style={{ textAlign:"center" }}>
+              <div style={{ color:"white", fontSize:28, fontWeight:800, fontFamily:"'DM Sans'" }}>{s.value}</div>
+              <div style={{ color:"rgba(255,255,255,0.7)", fontSize:12, textTransform:"uppercase", letterSpacing:0.5 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Features */}
+      <div style={{ padding:"64px 24px", maxWidth:960, margin:"0 auto" }}>
+        <div style={{ textAlign:"center", marginBottom:48 }}>
+          <h2 className="display-font" style={{ fontSize:36, marginBottom:10 }}>How It Works</h2>
+          <p style={{ color:COLORS.muted, fontSize:16 }}>Three steps to save a life</p>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px,1fr))", gap:24 }}>
+          {[
+            { icon:"user", title:"Register", desc:"Sign up as a donor with your blood group, location, and availability status in under 2 minutes.", step:"01" },
+            { icon:"search", title:"Search", desc:"Patients or hospitals search by blood group and city to instantly find available matching donors.", step:"02" },
+            { icon:"shield", title:"Connect Securely", desc:"OTP-verified contact reveal ensures privacy while enabling emergency connections.", step:"03" },
+          ].map((f,i) => (
+            <div key={i} className="card" style={{ padding:28, animation:"fadeUp 0.6s ease both", animationDelay:`${0.1+i*0.15}s` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
+                <div style={{ background:COLORS.crimson, borderRadius:10, padding:10, display:"flex" }}>
+                  <Icon name={f.icon} size={20} color="white" />
+                </div>
+                <span style={{ fontSize:42, fontWeight:900, color:COLORS.border, fontFamily:"'DM Sans'" }}>{f.step}</span>
+              </div>
+              <h3 style={{ fontSize:20, fontWeight:700, marginBottom:8 }}>{f.title}</h3>
+              <p style={{ color:COLORS.muted, lineHeight:1.6, fontSize:14 }}>{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div style={{ background:COLORS.warm, padding:"48px 24px", textAlign:"center" }}>
+        <div style={{ fontSize:40, marginBottom:12 }}>🩸</div>
+        <h2 className="display-font" style={{ fontSize:32, marginBottom:12 }}>Be a Hero Today</h2>
+        <p style={{ color:COLORS.muted, marginBottom:28, maxWidth:400, margin:"0 auto 28px" }}>
+          One donation can save up to 3 lives. Register now and be part of the emergency response network.
+        </p>
+        <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
+          {!currentUser ? (
+            <>
+              <button className="btn-primary" onClick={() => onNavigate("register")}>
+                <Icon name="heart" size={16} color="white" />
+                Join as Donor
+              </button>
+              <button className="btn-secondary" onClick={() => onNavigate("login")}>Sign In</button>
+            </>
+          ) : (
+            <button className="btn-primary" onClick={() => onNavigate("search")}>
+              <Icon name="search" size={16} color="white" />
+              Find Donors Now
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── AUTH PAGES ────────────────────────────────────────────────────────────────
+const DEMO_LOGIN_OTP = "12345";
+
+const LoginPage = ({ onNavigate, onLogin, addToast }) => {
+  const [step, setStep] = useState("email"); // "email" | "otp"
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState(["","","","",""]);
+  const [loading, setLoading] = useState(false);
+  const [resolvedUser, setResolvedUser] = useState(null);
+  const [resendTimer, setResendTimer] = useState(0);
+
+  useEffect(() => {
+    if (resendTimer > 0) {
+      const t = setTimeout(() => setResendTimer(s => s-1), 1000);
+      return () => clearTimeout(t);
+    }
+  }, [resendTimer]);
+
+  const sendOtp = () => {
+    if (!email) { addToast("Enter your email address", "error"); return; }
+    // Admin check
+    if (email === ADMIN.email) {
+      setResolvedUser(ADMIN);
+      setLoading(true);
+      setTimeout(() => { setStep("otp"); setLoading(false); setResendTimer(30); }, 1000);
+      return;
+    }
+    const user = DB.users.find(u => u.email === email);
+    if (!user) { addToast("Email not registered. Please sign up first.", "error"); return; }
+    setResolvedUser(user);
+    setLoading(true);
+    setTimeout(() => { setStep("otp"); setLoading(false); setResendTimer(30); }, 1000);
+  };
+
+  const verifyOtp = () => {
+    const entered = otp.join("");
+    if (entered.length !== 5) { addToast("Enter all 5 digits", "error"); return; }
+    if (entered !== DEMO_LOGIN_OTP) {
+      addToast("Incorrect OTP. Try 12345 for demo.", "error");
+      setOtp(["","","","",""]);
+      document.getElementById("lotp-0")?.focus();
+      return;
+    }
+    DB.currentUser = resolvedUser;
+    onLogin(resolvedUser);
+    addToast(`Welcome${resolvedUser.isAdmin ? ", Admin" : ` back, ${resolvedUser.name}`}! 🩸`, "success");
+  };
+
+  const handleOtpKey = (i, val, e) => {
+    if (!/^\d?$/.test(val)) return;
+    const next = [...otp]; next[i] = val; setOtp(next);
+    if (val && i < 4) document.getElementById(`lotp-${i+1}`)?.focus();
+    if (e.key === "Backspace" && !val && i > 0) document.getElementById(`lotp-${i-1}`)?.focus();
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:`linear-gradient(135deg, ${COLORS.charcoal} 0%, ${COLORS.slate} 60%, #3D1A1A 100%)`, display:"flex", alignItems:"center", justifyContent:"center", padding:24, position:"relative", overflow:"hidden" }}>
+      {[...Array(5)].map((_,i) => (
+        <div key={i} style={{ position:"absolute", top:`${10+i*18}%`, right:`${4+i*10}%`, opacity:0.05+i*0.015, animation:`float ${3+i*0.6}s ease-in-out infinite`, animationDelay:`${i*0.4}s` }}>
+          <Icon name="drop" size={20+i*10} color="white" />
+        </div>
+      ))}
+      <div style={{ width:"100%", maxWidth:440, position:"relative", zIndex:1 }}>
+        <div style={{ textAlign:"center", marginBottom:32, animation:"fadeUp 0.5s ease both" }}>
+          <div style={{ display:"inline-flex", background:COLORS.crimson, borderRadius:16, padding:14, marginBottom:16, boxShadow:"0 8px 32px rgba(200,16,46,0.4)" }}>
+            <Icon name="drop" size={30} color="white" />
+          </div>
+          <h1 className="display-font" style={{ color:"white", fontSize:34, marginBottom:8 }}>Welcome Back</h1>
+          <p style={{ color:"rgba(255,255,255,0.6)", fontSize:15 }}>Sign in with OTP — no password needed</p>
+        </div>
+
+        <div style={{ background:"rgba(255,255,255,0.07)", backdropFilter:"blur(16px)", borderRadius:20, padding:32, border:"1px solid rgba(255,255,255,0.12)", animation:"fadeUp 0.5s ease 0.1s both", boxShadow:"0 24px 64px rgba(0,0,0,0.3)" }}>
+          {step === "email" ? (
+            <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+              <div>
+                <label style={{ display:"block", fontSize:13, fontWeight:600, color:"rgba(255,255,255,0.5)", marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Email Address</label>
+                <input
+                  className="input-field"
+                  type="email"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  onKeyDown={e => e.key==="Enter" && sendOtp()}
+                  style={{ background:"rgba(255,255,255,0.1)", border:"1.5px solid rgba(255,255,255,0.15)", color:"white", fontSize:16 }}
+                />
+                <p style={{ fontSize:12, color:"rgba(255,255,255,0.4)", marginTop:6 }}>Admin: admin@bloodlink.com · OTP: <strong style={{color:"rgba(255,255,255,0.6)"}}>12345</strong></p>
+              </div>
+              <button className="btn-primary" style={{ width:"100%", justifyContent:"center", padding:"14px", fontSize:16, background:COLORS.crimson, boxShadow:"0 4px 20px rgba(200,16,46,0.4)" }} onClick={sendOtp} disabled={loading}>
+                {loading ? <div className="spinner" style={{ borderTopColor:"white", borderColor:"rgba(255,255,255,0.3)" }} /> : <Icon name="phone" size={16} color="white" />}
+                {loading ? "Sending OTP..." : "Send OTP"}
+              </button>
+              <div style={{ textAlign:"center" }}>
+                <span style={{ color:"rgba(255,255,255,0.4)", fontSize:14 }}>New donor? </span>
+                <button className="btn-ghost" style={{ color:COLORS.crimsonLight, fontWeight:600, padding:"0 4px" }} onClick={() => onNavigate("register")}>Register here</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:20, animation:"fadeUp 0.4s ease both" }}>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ width:52, height:52, borderRadius:12, background:"rgba(200,16,46,0.2)", border:"1px solid rgba(200,16,46,0.4)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px" }}>
+                  <Icon name="shield" size={24} color={COLORS.crimsonLight} />
+                </div>
+                <p style={{ color:"rgba(255,255,255,0.7)", fontSize:14 }}>OTP sent to <strong style={{color:"white"}}>{email}</strong></p>
+                <p style={{ color:"rgba(255,255,255,0.4)", fontSize:12, marginTop:4 }}>Enter <strong style={{color:"rgba(255,255,255,0.6)"}}>12345</strong> for demo</p>
+              </div>
+              <div style={{ display:"flex", gap:8, justifyContent:"center" }}>
+                {otp.map((d,i) => (
+                  <input
+                    key={i}
+                    id={`lotp-${i}`}
+                    className="otp-input"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={d}
+                    onChange={e => handleOtpKey(i, e.target.value, e)}
+                    onKeyDown={e => { if(e.key==="Backspace"){ const next=[...otp]; if(!next[i]&&i>0){ next[i-1]=""; setOtp(next); document.getElementById(`lotp-${i-1}`)?.focus(); } else { next[i]=""; setOtp(next); } } }}
+                    style={{ background:"rgba(255,255,255,0.1)", border:`2px solid ${d ? COLORS.crimsonLight : "rgba(255,255,255,0.15)"}`, color:"white", transition:"border-color 0.2s" }}
+                  />
+                ))}
+              </div>
+              <button className="btn-primary" style={{ width:"100%", justifyContent:"center", padding:"14px", fontSize:16, background:COLORS.crimson, boxShadow:"0 4px 20px rgba(200,16,46,0.4)" }} onClick={verifyOtp} disabled={otp.join("").length !== 5}>
+                <Icon name="check" size={16} color="white" />
+                Verify & Sign In
+              </button>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <button className="btn-ghost" style={{ color:"rgba(255,255,255,0.5)", fontSize:13 }} onClick={() => { setStep("email"); setOtp(["","","","",""]); }}>
+                  ← Change email
+                </button>
+                {resendTimer > 0 ? (
+                  <span style={{ fontSize:13, color:"rgba(255,255,255,0.4)" }}>Resend in {resendTimer}s</span>
+                ) : (
+                  <button className="btn-ghost" style={{ color:COLORS.crimsonLight, fontSize:13, fontWeight:600 }} onClick={() => { setOtp(["","","","",""]); setResendTimer(30); addToast("OTP resent!", "success"); }}>
+                    Resend OTP
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const RegisterPage = ({ onNavigate, onLogin, addToast }) => {
+  const [form, setForm] = useState({
+    name:"", email:"", mobile:"", age:"", bloodGroup:"",
+    city:"", gender:"Male", weight:"", lastDonation:"", status:"Available", password: generateId()
+  });
+  const [loading, setLoading] = useState(false);
+  const set = (k,v) => setForm(f => ({...f,[k]:v}));
+
+  const handleSubmit = () => {
+    if (!form.name||!form.email||!form.mobile||!form.bloodGroup||!form.city) {
+      addToast("Please fill in all required fields", "error"); return;
+    }
+    if (DB.users.find(u=>u.email===form.email)) { addToast("Email already registered", "error"); return; }
+    setLoading(true);
+    setTimeout(() => {
+      const newUser = { ...form, id: generateId(), age: parseInt(form.age)||25, weight: parseInt(form.weight)||70, totalDonations:0 };
+      DB.users.push(newUser);
+      DB.currentUser = newUser;
+      onLogin(newUser);
+      addToast(`Welcome, ${form.name}! You're now registered as a donor. 🩸`, "success");
+      setLoading(false);
+    }, 1000);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:COLORS.cream, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ width:"100%", maxWidth:520 }}>
+        <div style={{ textAlign:"center", marginBottom:28, animation:"fadeUp 0.5s ease both" }}>
+          <div style={{ display:"inline-flex", background:COLORS.crimson, borderRadius:14, padding:12, marginBottom:14 }}>
+            <Icon name="heart" size={26} color="white" />
+          </div>
+          <h1 className="display-font" style={{ fontSize:32, marginBottom:6 }}>Join the Registry</h1>
+          <p style={{ color:COLORS.muted }}>Register as a blood donor — login uses OTP, no password</p>
+        </div>
+        <div className="card" style={{ padding:32, animation:"fadeUp 0.5s ease 0.1s both" }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+            <div>
+              <label className="label">Full Name *</label>
+              <input className="input-field" placeholder="Your full name" value={form.name} onChange={e=>set("name",e.target.value)} />
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div>
+                <label className="label">Age *</label>
+                <input className="input-field" type="number" placeholder="Age" min={18} max={65} value={form.age} onChange={e=>set("age",e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Gender</label>
+                <select className="input-field" value={form.gender} onChange={e=>set("gender",e.target.value)}>
+                  <option>Male</option><option>Female</option><option>Other</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="label">Mobile Number *</label>
+              <input className="input-field" placeholder="10-digit mobile" value={form.mobile} onChange={e=>set("mobile",e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Email Address *</label>
+              <input className="input-field" type="email" placeholder="your@email.com" value={form.email} onChange={e=>set("email",e.target.value)} />
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div>
+                <label className="label">Blood Group *</label>
+                <select className="input-field" value={form.bloodGroup} onChange={e=>set("bloodGroup",e.target.value)}>
+                  <option value="">Select</option>
+                  {BLOOD_GROUPS.map(b=><option key={b}>{b}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">City *</label>
+                <select className="input-field" value={form.city} onChange={e=>set("city",e.target.value)}>
+                  <option value="">Select</option>
+                  {CITIES.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div>
+                <label className="label">Availability</label>
+                <select className="input-field" value={form.status} onChange={e=>set("status",e.target.value)}>
+                  {STATUS_OPTIONS.map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Last Donation</label>
+                <input className="input-field" type="date" value={form.lastDonation} onChange={e=>set("lastDonation",e.target.value)} />
+              </div>
+            </div>
+            <button className="btn-primary" style={{ width:"100%", justifyContent:"center", padding:"13px", fontSize:16 }} onClick={handleSubmit} disabled={loading}>
+              {loading ? <div className="spinner" style={{ borderTopColor:"white", borderColor:"rgba(255,255,255,0.3)" }} /> : <Icon name="heart" size={16} color="white" />}
+              {loading ? "Registering..." : "Create Account"}
+            </button>
+          </div>
+        </div>
+        <p style={{ textAlign:"center", marginTop:18, color:COLORS.muted, fontSize:14 }}>
+          Already registered?{" "}
+          <button className="btn-ghost" style={{ padding:"0 4px", color:COLORS.crimson, fontWeight:600 }} onClick={() => onNavigate("login")}>Sign in</button>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const AuthPage = ({ mode, onNavigate, onLogin, addToast }) => {
+  if (mode === "login") return <LoginPage onNavigate={onNavigate} onLogin={onLogin} addToast={addToast} />;
+  return <RegisterPage onNavigate={onNavigate} onLogin={onLogin} addToast={addToast} />;
+};
+
+// ─── DONOR PROFILE ─────────────────────────────────────────────────────────────
+const ProfilePage = ({ user, onUpdate, addToast }) => {
+  const [form, setForm] = useState({ ...user });
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const set = (k,v) => setForm(f => ({...f,[k]:v}));
+  const sc = STATUS_COLORS[user.status] || STATUS_COLORS.Available;
+  const eligible = isEligibleToDonate(user.lastDonation);
+  const userRequests = DB.requests.filter(r => r.donorId === user.id || r.patientId === user.id);
+
+  const save = () => {
+    setLoading(true);
+    setTimeout(() => {
+      const idx = DB.users.findIndex(u => u.id === user.id);
+      if (idx !== -1) DB.users[idx] = { ...DB.users[idx], ...form };
+      DB.currentUser = { ...DB.currentUser, ...form };
+      onUpdate({ ...user, ...form });
+      setEditing(false);
+      setLoading(false);
+      addToast("Profile updated successfully!", "success");
+    }, 800);
+  };
+
+  return (
+    <div style={{ padding:"32px 24px", maxWidth:720, margin:"0 auto" }}>
+      <div className="card" style={{ marginBottom:24, overflow:"hidden" }}>
+        {/* Header */}
+        <div style={{ background:`linear-gradient(135deg, ${COLORS.charcoal}, ${COLORS.slate})`, padding:"28px 28px 40px", animation:"fadeIn 0.5s ease both" }}>
+          <div style={{ display:"flex", alignItems:"start", gap:16, flexWrap:"wrap" }}>
+            <div style={{ width:68, height:68, borderRadius:16, background:"rgba(255,255,255,0.1)", border:"2px solid rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <span style={{ fontSize:24, fontWeight:900, color:"white", fontFamily:"'DM Sans'" }}>{user.bloodGroup}</span>
+            </div>
+            <div style={{ flex:1 }}>
+              <h1 style={{ color:"white", fontSize:24, fontWeight:700, marginBottom:4 }}>{user.name}</h1>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <span style={{ color:"rgba(255,255,255,0.6)", fontSize:14 }}>📍 {user.city}</span>
+                <span style={{ color:"rgba(255,255,255,0.6)", fontSize:14 }}>• Age {user.age}</span>
+              </div>
+            </div>
+            <div className="badge" style={{ background:sc.bg, color:sc.text }}>
+              <div style={{ width:6, height:6, borderRadius:"50%", background:sc.dot }} />
+              {user.status}
+            </div>
+          </div>
+        </div>
+
+        {/* Stats strip */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", borderBottom:`1px solid ${COLORS.border}` }}>
+          {[
+            { label:"Total Donations", value: user.totalDonations || 0 },
+            { label:"Requests Received", value: userRequests.filter(r=>r.donorId===user.id).length },
+            { label:"Eligibility", value: eligible ? "✓ Eligible" : "Waiting" },
+          ].map((s,i) => (
+            <div key={i} style={{ padding:"16px 20px", borderRight: i<2 ? `1px solid ${COLORS.border}` : "none", textAlign:"center" }}>
+              <div style={{ fontWeight:700, fontSize:20, color: s.label==="Eligibility" ? (eligible ? COLORS.success : COLORS.warning) : COLORS.charcoal }}>{s.value}</div>
+              <div style={{ fontSize:12, color:COLORS.muted }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding:28 }}>
+          {!editing ? (
+            <>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px,1fr))", gap:16, marginBottom:24 }}>
+                {[
+                  ["Blood Group", user.bloodGroup], ["City", user.city], ["Mobile", user.mobile],
+                  ["Email", user.email], ["Gender", user.gender||"—"], ["Weight", user.weight ? `${user.weight} kg` : "—"],
+                  ["Last Donation", user.lastDonation || "Never"], ["Status", user.status],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ padding:"12px 16px", background:COLORS.cream, borderRadius:10 }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:COLORS.muted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:3 }}>{label}</div>
+                    <div style={{ fontWeight:600, fontSize:15 }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+              <button className="btn-primary" onClick={() => setEditing(true)}>
+                <Icon name="edit" size={15} color="white" /> Edit Profile
+              </button>
+            </>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div><label className="label">Full Name</label><input className="input-field" value={form.name} onChange={e=>set("name",e.target.value)} /></div>
+                <div><label className="label">Mobile</label><input className="input-field" value={form.mobile} onChange={e=>set("mobile",e.target.value)} /></div>
+                <div>
+                  <label className="label">Blood Group</label>
+                  <select className="input-field" value={form.bloodGroup} onChange={e=>set("bloodGroup",e.target.value)}>
+                    {BLOOD_GROUPS.map(b=><option key={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">City</label>
+                  <select className="input-field" value={form.city} onChange={e=>set("city",e.target.value)}>
+                    {CITIES.map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Availability</label>
+                  <select className="input-field" value={form.status} onChange={e=>set("status",e.target.value)}>
+                    {STATUS_OPTIONS.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div><label className="label">Last Donation</label><input className="input-field" type="date" value={form.lastDonation} onChange={e=>set("lastDonation",e.target.value)} /></div>
+                <div><label className="label">Age</label><input className="input-field" type="number" value={form.age} onChange={e=>set("age",e.target.value)} /></div>
+                <div><label className="label">Weight (kg)</label><input className="input-field" type="number" value={form.weight||""} onChange={e=>set("weight",e.target.value)} /></div>
+              </div>
+              <div style={{ display:"flex", gap:10 }}>
+                <button className="btn-primary" onClick={save} disabled={loading}>
+                  {loading ? <div className="spinner" style={{ borderTopColor:"white", borderColor:"rgba(255,255,255,0.3)" }} /> : <Icon name="check" size={15} color="white" />}
+                  Save Changes
+                </button>
+                <button className="btn-secondary" onClick={() => { setEditing(false); setForm({...user}); }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── SEARCH PAGE ───────────────────────────────────────────────────────────────
+const SearchPage = ({ currentUser, addToast }) => {
+  const [filters, setFilters] = useState({ bloodGroup:"", city:"", status:"", compatible:false });
+  const [results, setResults] = useState(DB.users);
+  const [otpDonor, setOtpDonor] = useState(null);
+  const [revealedIds, setRevealedIds] = useState([]);
+  const setF = (k,v) => setFilters(f => ({...f,[k]:v}));
+
+  const search = useCallback(() => {
+    let res = DB.users.filter(u => u.id !== currentUser?.id);
+    if (filters.bloodGroup) {
+      if (filters.compatible) {
+        const compat = BG_COMPATIBILITY[filters.bloodGroup] || [];
+        res = res.filter(u => compat.includes(u.bloodGroup));
+      } else {
+        res = res.filter(u => u.bloodGroup === filters.bloodGroup);
+      }
+    }
+    if (filters.city) res = res.filter(u => u.city === filters.city);
+    if (filters.status) res = res.filter(u => u.status === filters.status);
+    // Sort: Available first
+    res.sort((a,b) => {
+      const order = { Available:0, Busy:1, "Recently Donated":2 };
+      return (order[a.status]||99) - (order[b.status]||99);
+    });
+    setResults(res);
+  }, [filters, currentUser]);
+
+  useEffect(() => { search(); }, [search]);
+
+  const handleRequest = (donor) => {
+    if (!currentUser) { addToast("Please login to request contact", "error"); return; }
+    setOtpDonor(donor);
+  };
+
+  const handleOtpSuccess = (donor) => {
+    setRevealedIds(ids => [...ids, donor.id]);
+    setOtpDonor(null);
+    addToast(`Contact revealed for ${donor.name}`, "success");
+  };
+
+  const available = results.filter(d=>d.status==="Available").length;
+
+  return (
+    <div style={{ padding:"32px 24px", maxWidth:1100, margin:"0 auto" }}>
+      {otpDonor && <OtpModal donor={otpDonor} onSuccess={handleOtpSuccess} onClose={() => setOtpDonor(null)} />}
+
+      <div style={{ marginBottom:28 }}>
+        <h1 className="section-title">Find Blood Donors</h1>
+        <p style={{ color:COLORS.muted }}>Search across {DB.users.length} registered donors in real time</p>
+      </div>
+
+      {/* Filters */}
+      <div className="card" style={{ padding:24, marginBottom:28 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px,1fr))", gap:14, marginBottom:16 }}>
+          <div>
+            <label className="label">Blood Group</label>
+            <select className="input-field" value={filters.bloodGroup} onChange={e=>setF("bloodGroup",e.target.value)}>
+              <option value="">All Groups</option>
+              {BLOOD_GROUPS.map(b=><option key={b}>{b}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">City</label>
+            <select className="input-field" value={filters.city} onChange={e=>setF("city",e.target.value)}>
+              <option value="">All Cities</option>
+              {CITIES.map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Status</label>
+            <select className="input-field" value={filters.status} onChange={e=>setF("status",e.target.value)}>
+              <option value="">All Status</option>
+              {STATUS_OPTIONS.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        {filters.bloodGroup && (
+          <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", fontSize:14, color:COLORS.muted }}>
+            <input type="checkbox" checked={filters.compatible} onChange={e=>setF("compatible",e.target.checked)} style={{ accentColor:COLORS.crimson }} />
+            Show compatible donors for <strong style={{ color:COLORS.charcoal }}>{filters.bloodGroup}</strong>
+          </label>
+        )}
+      </div>
+
+      {/* Results */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:8 }}>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          <span style={{ fontWeight:600, color:COLORS.charcoal }}>{results.length} donors found</span>
+          {available > 0 && (
+            <span className="badge" style={{ background:"#DCFCE7", color:"#166534" }}>
+              <div style={{ width:6, height:6, borderRadius:"50%", background:"#16A34A" }} />
+              {available} Available Now
+            </span>
+          )}
+        </div>
+        <div style={{ display:"flex", gap:6 }}>
+          {filters.bloodGroup && <span className="badge" style={{ background:COLORS.warm, color:COLORS.crimson, border:`1px solid ${COLORS.border}` }}>{filters.bloodGroup}</span>}
+          {filters.city && <span className="badge" style={{ background:COLORS.warm, color:COLORS.slate, border:`1px solid ${COLORS.border}` }}>{filters.city}</span>}
+        </div>
+      </div>
+
+      {results.length === 0 ? (
+        <div style={{ textAlign:"center", padding:"60px 24px", color:COLORS.muted }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🔍</div>
+          <div style={{ fontSize:18, fontWeight:600, marginBottom:8 }}>No donors found</div>
+          <div style={{ fontSize:14 }}>Try adjusting your filters</div>
+        </div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px,1fr))", gap:16 }}>
+          {results.map((d,i) => (
+            <div key={d.id} style={{ animation:`fadeUp 0.4s ease forwards`, animationDelay:`${i*0.04}s`, opacity:0 }}>
+              <DonorCard
+                donor={d}
+                onRequest={handleRequest}
+                showRequest={!revealedIds.includes(d.id)}
+              />
+              {revealedIds.includes(d.id) && (
+                <div style={{ marginTop:8, padding:"10px 14px", background:"#F0FDF4", borderRadius:10, border:"1px solid #86EFAC", fontSize:13, color:COLORS.success, display:"flex", gap:8 }}>
+                  <Icon name="check" size={14} color={COLORS.success} />
+                  Contact revealed: {d.mobile}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── DASHBOARD ─────────────────────────────────────────────────────────────────
+const DashboardPage = () => {
+  const donors = DB.users;
+  const totalDonors = donors.length;
+  const activeDonors = donors.filter(d=>d.status==="Available").length;
+  const recentRequests = DB.requests.slice(-5).reverse();
+
+  const bgCounts = BLOOD_GROUPS.map(bg => ({
+    bg, count: donors.filter(d=>d.bloodGroup===bg).length
+  })).sort((a,b)=>b.count-a.count);
+
+  const maxCount = Math.max(...bgCounts.map(b=>b.count), 1);
+
+  const cityStats = CITIES.map(c => ({ city:c, count: donors.filter(d=>d.city===c).length }))
+    .filter(c=>c.count>0).sort((a,b)=>b.count-a.count).slice(0,6);
+
+  return (
+    <div style={{ padding:"32px 24px", maxWidth:1100, margin:"0 auto" }}>
+      <div style={{ marginBottom:32 }}>
+        <h1 className="section-title">Registry Dashboard</h1>
+        <p style={{ color:COLORS.muted }}>Live overview of the blood donor network</p>
+      </div>
+
+      {/* Top stats */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px,1fr))", gap:16, marginBottom:28 }}>
+        {[
+          { label:"Total Donors", value: totalDonors, icon:"user", color:COLORS.crimson, sub:"Across all cities" },
+          { label:"Active Now", value: activeDonors, icon:"heart", color:COLORS.success, sub:"Ready to donate" },
+          { label:"Total Requests", value: DB.requests.length, icon:"history", color:COLORS.info, sub:"All time" },
+          { label:"Cities Active", value: new Set(donors.map(d=>d.city)).size, icon:"pin", color:COLORS.warning, sub:"Geographic reach" },
+        ].map((s,i) => (
+          <div key={i} className="stat-card" style={{ animation:`fadeUp 0.5s cubic-bezier(0.22,1,0.36,1) ${0.05+i*0.1}s both` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"start", marginBottom:12 }}>
+              <div style={{ background:`${s.color}15`, borderRadius:10, padding:10, display:"flex" }}>
+                <Icon name={s.icon} size={18} color={s.color} />
+              </div>
+              <span style={{ fontSize:11, color:COLORS.muted, fontWeight:600 }}>{s.sub}</span>
+            </div>
+            <div style={{ fontSize:36, fontWeight:800, color:COLORS.charcoal, fontFamily:"'DM Sans'" }}>{s.value}</div>
+            <div style={{ fontSize:13, color:COLORS.muted, fontWeight:500 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
+        {/* Blood group distribution */}
+        <div className="card" style={{ padding:24 }}>
+          <h3 style={{ fontWeight:700, fontSize:17, marginBottom:20 }}>Blood Group Distribution</h3>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {bgCounts.map(({bg, count}) => (
+              <div key={bg} style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <div className="blood-badge" style={{ width:38, height:38, fontSize:12, borderRadius:8, flexShrink:0 }}>{bg}</div>
+                <div style={{ flex:1 }}>
+                  <div className="progress-bar">
+                    <div className="progress-fill" style={{ width:`${(count/maxCount)*100}%` }} />
+                  </div>
+                </div>
+                <span style={{ fontWeight:700, fontSize:14, width:24, textAlign:"right", color:COLORS.charcoal }}>{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* City distribution */}
+        <div className="card" style={{ padding:24 }}>
+          <h3 style={{ fontWeight:700, fontSize:17, marginBottom:20 }}>Top Donor Cities</h3>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {cityStats.map(({city, count}, i) => (
+              <div key={city} style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <span style={{ width:20, fontSize:12, fontWeight:700, color:COLORS.muted, textAlign:"right" }}>#{i+1}</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                    <span style={{ fontSize:14, fontWeight:600 }}>{city}</span>
+                    <span style={{ fontSize:13, color:COLORS.muted }}>{count} donors</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div className="progress-fill" style={{ width:`${(count/totalDonors)*100}%` }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent requests */}
+      <div className="card" style={{ padding:24 }}>
+        <h3 style={{ fontWeight:700, fontSize:17, marginBottom:20 }}>Recent Contact Requests</h3>
+        {recentRequests.length === 0 ? (
+          <p style={{ color:COLORS.muted, fontSize:14, textAlign:"center", padding:"20px 0" }}>No requests yet</p>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+            {recentRequests.map((r,i) => {
+              const sc = { Approved: { bg:"#DCFCE7", text:"#166534" }, Pending: { bg:"#FEF3C7", text:"#92400E" }, Rejected: { bg:"#FEE2E2", text:"#991B1B" } };
+              const c = sc[r.status] || sc.Pending;
+              return (
+                <div key={r.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 0", borderBottom: i<recentRequests.length-1 ? `1px solid ${COLORS.border}` : "none", flexWrap:"wrap" }}>
+                  <div className="blood-badge" style={{ width:38, height:38, fontSize:12, borderRadius:8, flexShrink:0 }}>{r.bloodGroup}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:600, fontSize:15 }}>{r.donorName}</div>
+                    <div style={{ fontSize:12, color:COLORS.muted }}>{r.city} · {new Date(r.timestamp).toLocaleString()}</div>
+                  </div>
+                  <span className="badge" style={{ background:c.bg, color:c.text }}>
+                    {r.status}
+                  </span>
+                  {r.otpVerified && (
+                    <span style={{ fontSize:11, color:COLORS.success, display:"flex", alignItems:"center", gap:3 }}>
+                      <Icon name="shield" size={11} color={COLORS.success} /> Verified
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── REQUEST HISTORY ───────────────────────────────────────────────────────────
+const HistoryPage = ({ currentUser }) => {
+  const [tab, setTab] = useState("all");
+  const all = DB.requests;
+  const mine = currentUser ? all.filter(r => r.patientId===currentUser.id || r.donorId===currentUser.id) : [];
+  const displayed = tab==="mine" ? mine : all;
+
+  return (
+    <div style={{ padding:"32px 24px", maxWidth:800, margin:"0 auto" }}>
+      <div style={{ marginBottom:24 }}>
+        <h1 className="section-title">Request History</h1>
+        <p style={{ color:COLORS.muted }}>Track all donor contact requests</p>
+      </div>
+
+      <div style={{ display:"flex", gap:4, background:COLORS.cream, padding:4, borderRadius:10, width:"fit-content", marginBottom:24, border:`1px solid ${COLORS.border}` }}>
+        <button className={`tab ${tab==="all"?"active":""}`} onClick={()=>setTab("all")}>All Requests ({all.length})</button>
+        {currentUser && <button className={`tab ${tab==="mine"?"active":""}`} onClick={()=>setTab("mine")}>My Requests ({mine.length})</button>}
+      </div>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        {displayed.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"60px 24px", color:COLORS.muted }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>📋</div>
+            <div style={{ fontSize:18, fontWeight:600 }}>No requests found</div>
+          </div>
+        ) : displayed.map((r,i) => {
+          const sc = { Approved:{ bg:"#DCFCE7", text:"#166534" }, Pending:{ bg:"#FEF3C7", text:"#92400E" }, Rejected:{ bg:"#FEE2E2", text:"#991B1B" }};
+          const c = sc[r.status] || sc.Pending;
+          return (
+            <div key={r.id} className="card" style={{ padding:20, animation:`slideIn 0.3s ease ${i*0.05}s both`, opacity:0 }}>
+              <div style={{ display:"flex", gap:14, alignItems:"start", flexWrap:"wrap" }}>
+                <div className="blood-badge" style={{ width:46, height:46, borderRadius:10, flexShrink:0 }}>{r.bloodGroup}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"start", flexWrap:"wrap", gap:8, marginBottom:6 }}>
+                    <div style={{ fontWeight:700, fontSize:16 }}>{r.donorName}</div>
+                    <span className="badge" style={{ background:c.bg, color:c.text }}>{r.status}</span>
+                  </div>
+                  <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:8 }}>
+                    <span style={{ fontSize:13, color:COLORS.muted }}>📍 {r.city}</span>
+                    <span style={{ fontSize:13, color:COLORS.muted }}>Requested by: {r.patientName}</span>
+                  </div>
+                  <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12, color:COLORS.muted }}>{new Date(r.timestamp).toLocaleString()}</span>
+                    {r.otpVerified ? (
+                      <span style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, color:COLORS.success, background:"#F0FDF4", padding:"2px 8px", borderRadius:99 }}>
+                        <Icon name="shield" size={11} color={COLORS.success} /> OTP Verified
+                      </span>
+                    ) : (
+                      <span style={{ fontSize:12, color:COLORS.muted, background:COLORS.cream, padding:"2px 8px", borderRadius:99 }}>Unverified</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ─── LAYOUT + NAVIGATION ───────────────────────────────────────────────────────
+const Sidebar = ({ page, onNavigate, currentUser, onLogout }) => {
+  const navItems = [
+    { id:"home", icon:"home", label:"Home" },
+    { id:"search", icon:"search", label:"Find Donors" },
+    { id:"dashboard", icon:"dashboard", label:"Dashboard" },
+    { id:"history", icon:"history", label:"Request History" },
+    ...(currentUser ? [{ id:"profile", icon:"user", label:"My Profile" }] : []),
+  ];
+
+  return (
+    <div style={{
+      width:220, background:"white", borderRight:`1px solid ${COLORS.border}`,
+      display:"flex", flexDirection:"column", padding:"20px 12px",
+      position:"sticky", top:0, height:"100vh", flexShrink:0,
+    }}>
+      {/* Logo */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 8px 24px" }}>
+        <div style={{ background:COLORS.crimson, borderRadius:10, padding:8, display:"flex" }}>
+          <Icon name="drop" size={18} color="white" />
+        </div>
+        <div>
+          <div style={{ fontFamily:"'Playfair Display', serif", fontWeight:700, fontSize:14, lineHeight:1.1 }}>BloodLink</div>
+          <div style={{ fontSize:10, color:COLORS.muted, letterSpacing:0.5 }}>DONOR REGISTRY</div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav style={{ display:"flex", flexDirection:"column", gap:4, flex:1 }}>
+        {navItems.map((item,idx) => (
+          <button key={item.id} className={`nav-link ${page===item.id?"active":""}`} onClick={() => onNavigate(item.id)} style={{ animation:"slideIn 0.35s ease both", animationDelay:`${idx*0.06}s` }}>
+            <Icon name={item.icon} size={17} color={page===item.id ? "white" : COLORS.muted} />
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* SOS Button */}
+      <div style={{ margin:"12px 0" }}>
+        <button className="btn-primary" style={{ width:"100%", justifyContent:"center", background:"#DC2626", fontSize:13, padding:"10px" }} onClick={()=>{}}>
+          <Icon name="sos" size={15} color="white" />
+          SOS Emergency
+        </button>
+      </div>
+
+      {/* User section */}
+      <div style={{ borderTop:`1px solid ${COLORS.border}`, paddingTop:12 }}>
+        {currentUser ? (
+          <div>
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", marginBottom:4 }}>
+              <div style={{ width:32, height:32, borderRadius:8, background:COLORS.crimson, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <span style={{ color:"white", fontWeight:700, fontSize:currentUser.isAdmin?10:13 }}>{currentUser.isAdmin ? "ADM" : currentUser.bloodGroup}</span>
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:600, fontSize:13, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{currentUser.name}</div>
+                <div style={{ fontSize:11, color:COLORS.muted }}>{currentUser.isAdmin ? "Administrator" : currentUser.city}</div>
+              </div>
+            </div>
+            <button className="nav-link" style={{ color:COLORS.crimson }} onClick={onLogout}>
+              <Icon name="logout" size={16} color={COLORS.crimson} />
+              Sign Out
+            </button>
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            <button className="btn-primary" style={{ width:"100%", justifyContent:"center", fontSize:13, padding:10 }} onClick={() => onNavigate("login")}>Sign In</button>
+            <button className="btn-secondary" style={{ width:"100%", justifyContent:"center", fontSize:13, padding:9 }} onClick={() => onNavigate("register")}>Register</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const TopBar = ({ page, onNavigate, currentUser, onLogout, mobileMenuOpen, setMobileMenuOpen }) => (
+  <div style={{ background:"white", borderBottom:`1px solid ${COLORS.border}`, padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 }}>
+    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+      <button onClick={() => setMobileMenuOpen(s=>!s)} style={{ background:"none", border:"none", cursor:"pointer", display:"flex", padding:4 }}>
+        <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={COLORS.charcoal} strokeWidth="2">
+          {mobileMenuOpen ? <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></> : <><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></>}
+        </svg>
+      </button>
+      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <div style={{ background:COLORS.crimson, borderRadius:8, padding:6, display:"flex" }}>
+          <Icon name="drop" size={14} color="white" />
+        </div>
+        <span style={{ fontFamily:"'Playfair Display', serif", fontWeight:700, fontSize:16 }}>BloodLink</span>
+      </div>
+    </div>
+    <div style={{ display:"flex", gap:8 }}>
+      {!currentUser ? (
+        <>
+          <button className="btn-ghost" style={{ fontSize:13, color:COLORS.muted }} onClick={() => onNavigate("login")}>Sign In</button>
+          <button className="btn-primary" style={{ fontSize:13, padding:"8px 16px" }} onClick={() => onNavigate("register")}>Register</button>
+        </>
+      ) : (
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ width:30, height:30, borderRadius:8, background:COLORS.crimson, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <span style={{ color:"white", fontWeight:700, fontSize:10 }}>{currentUser.isAdmin ? "ADM" : currentUser.bloodGroup}</span>
+          </div>
+          <span style={{ fontSize:13, fontWeight:600 }}>{currentUser.name.split(" ")[0]}</span>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// ─── MAIN APP ──────────────────────────────────────────────────────────────────
+function App() {
+  const [page, setPage] = useState("home");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" ? window.innerWidth < 768 : false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const addToast = useCallback((message, type="success") => {
+    setToast({ message, type, id: Date.now() });
+  }, []);
+
+  const navigate = useCallback((p) => {
+    setPage(p);
+    setMobileMenuOpen(false);
+    window.scrollTo(0,0);
+  }, []);
+
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+    setPage("dashboard");
+  };
+
+  const handleLogout = () => {
+    DB.currentUser = null;
+    setCurrentUser(null);
+    setPage("home");
+    addToast("Signed out successfully", "info");
+  };
+
+  const handleUpdateProfile = (updated) => {
+    setCurrentUser(updated);
+  };
+
+  const renderPage = () => {
+    switch(page) {
+      case "home": return <LandingPage onNavigate={navigate} currentUser={currentUser} />;
+      case "login": return <AuthPage mode="login" onNavigate={navigate} onLogin={handleLogin} addToast={addToast} />;
+      case "register": return <AuthPage mode="register" onNavigate={navigate} onLogin={handleLogin} addToast={addToast} />;
+      case "profile": return currentUser ? <ProfilePage user={currentUser} onUpdate={handleUpdateProfile} addToast={addToast} /> : <AuthPage mode="login" onNavigate={navigate} onLogin={handleLogin} addToast={addToast} />;
+      case "search": return <SearchPage currentUser={currentUser} addToast={addToast} />;
+      case "dashboard": return <DashboardPage />;
+      case "history": return <HistoryPage currentUser={currentUser} />;
+      default: return <LandingPage onNavigate={navigate} />;
+    }
+  };
+
+  const showSidebar = !["login","register"].includes(page);
+
+  return (
+    <>
+      <GlobalStyle />
+      {toast && (
+        <Toast
+          key={toast.id}
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
+      {["login","register"].includes(page) ? (
+        renderPage()
+      ) : (
+        <div style={{ display:"flex", minHeight:"100vh" }}>
+          {/* Desktop sidebar */}
+          {!isMobile && showSidebar && (
+            <Sidebar page={page} onNavigate={navigate} currentUser={currentUser} onLogout={handleLogout} />
+          )}
+
+          {/* Mobile sidebar overlay */}
+          {isMobile && mobileMenuOpen && (
+            <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex" }}>
+              <div style={{ width:240, height:"100%", background:"white", borderRight:`1px solid ${COLORS.border}`, padding:"20px 12px", display:"flex", flexDirection:"column", overflowY:"auto" }}>
+                <Sidebar page={page} onNavigate={navigate} currentUser={currentUser} onLogout={handleLogout} />
+              </div>
+              <div style={{ flex:1, background:"rgba(0,0,0,0.4)" }} onClick={() => setMobileMenuOpen(false)} />
+            </div>
+          )}
+
+          <div style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column" }}>
+            {isMobile && (
+              <TopBar page={page} onNavigate={navigate} currentUser={currentUser} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen} />
+            )}
+            <main style={{ flex:1, overflowY:"auto" }}>
+              <div key={page} className="page-enter">{renderPage()}</div>
+            </main>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
